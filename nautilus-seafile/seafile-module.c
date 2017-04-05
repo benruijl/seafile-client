@@ -5,14 +5,14 @@ static GType type_list[1];
 
 void nautilus_module_initialize(GTypeModule *module)
 {
-    g_message ("Initializing nautilus-seafile extension\n", NULL);
+    g_message ("Initializing nautilus-seafile extension\n");
     seafile_extension_register_type (module);
     type_list[0] = SEAFILE_TYPE_EXTENSION;
 }
 
 void nautilus_module_shutdown(void)
 {
-    g_message ("Unloading nautilus-seafile extension\n", NULL);
+    g_message ("Unloading nautilus-seafile extension\n");
 }
 
 void nautilus_module_list_types(const GType **types, int *num_types) {
