@@ -11,7 +11,7 @@
 #include "seafile-rpc-client.h"
 
 static guint kAutoconnectInterval = 10 * 1000;
-static guint kUpdateWatchSetInterval = 4 * 1000;
+static guint kUpdateWatchSetInterval = 10 * 1000;
 static guint kUpdateFileStatusInterval = 2 * 1000;
 static void start_autoconnect_rpc_client ();
 static GObject* find_repo_in_list (const char* path, GList *head);
@@ -72,8 +72,9 @@ static NautilusOperationResult seafile_extension_update_file_info (NautilusInfoP
     {
         return NAUTILUS_OPERATION_COMPLETE;
     }
-    g_return_val_if_fail (file, NAUTILUS_OPERATION_FAILED);
-    g_return_val_if_fail (!nautilus_file_info_is_gone (file), NAUTILUS_OPERATION_COMPLETE);
+
+    g_return_val_if_fail (file, NAUTILUS_OPERATION_FAILED); // TODO: should this really be an error?
+    if (nautilus_file_info_is_gone (file)) return NAUTILUS_OPERATION_COMPLETE;
 
     uri = nautilus_file_info_get_uri (file);
     filename = g_filename_from_uri (uri, NULL, NULL);
@@ -90,8 +91,8 @@ static NautilusOperationResult seafile_extension_update_file_info (NautilusInfoP
         g_free (uri);
         return NAUTILUS_OPERATION_COMPLETE;
     }
-    /* we can change it to a asynchronize way if we want? */
 
+    // TODO: make async?
     update_file_status_by_file (client, file, FALSE);
 
 	g_object_weak_ref (G_OBJECT (file), clean_up_single_file, NULL);
@@ -231,6 +232,8 @@ static void start_update_watch_set ()
     g_return_if_fail (!is_watch_set_started);
     is_watch_set_started = TRUE;
     g_timeout_add_full (G_PRIORITY_DEFAULT_IDLE, kUpdateWatchSetInterval, update_watch_set, NULL, stop_update_watch_set);
+
+    update_watch_set(NULL); // update the watchset now, so that the first file update succeeds
     start_update_file_status ();
 }
 
@@ -239,7 +242,7 @@ static void stop_connect_rpc_client (gpointer data)
 {
     is_connect_rpc_started = FALSE;
 
-    start_update_watch_set ();
+    start_update_watch_set (); // FIXME: is this correct?
 }
 
 static gboolean connect_rpc_client (gpointer data);
@@ -268,11 +271,9 @@ static void initialize_work ()
 
 static gboolean connect_rpc_client (gpointer data)
 {
-    /* connected? */
-    g_return_val_if_fail (!seafile_rpc_instance_connect (), FALSE);
-
-    /* should we retry connect */
-    return TRUE;
+    // returns TRUE when a reconnection should be attempted
+    // return FALSE when the connection succeeded
+    return !seafile_rpc_instance_connect ();
 }
 
 static inline gboolean update_file_status_by_name (SearpcClient *client, const char* path)
@@ -344,8 +345,10 @@ static gboolean update_file_status_by_file (SearpcClient *client, NautilusFileIn
         ++path_in_repo;
 
     status = g_hash_table_lookup (file_status_, filename);
+    g_debug("Update status by file %s %s %s %s %s %d", filename, uri, worktree,
+        path_in_repo, status, recheck);
     if (recheck || !status) {
-        /* we can change it to a asynchronize way if we want? */
+        // TODO: make async?
         status = searpc_client_call__string (
             client,
             "seafile_get_path_sync_status",
@@ -356,6 +359,7 @@ static gboolean update_file_status_by_file (SearpcClient *client, NautilusFileIn
 
         if (error)
         {
+            g_warning("Error during syncing: %s", error->message);
             gboolean is_disconnected = TRANSPORT_ERROR_CODE == error->code;
             g_error_free (error);
             g_free (worktree);
@@ -395,8 +399,7 @@ static gboolean update_file_status (gpointer data)
     GHashTableIter iter;
     gpointer key, value;
 
-    /* we handle this in a synchronize way for simplicity */
-
+    // TODO: make async?
     client = seafile_rpc_get_instance ();
     g_return_val_if_fail (client, FALSE);
 
@@ -409,6 +412,8 @@ static gboolean update_file_status (gpointer data)
     return TRUE;
 }
 
+// FIXME: why does this method exist? Can't update_file_status_by_name be used?
+// it is only used during clean-up now
 static void update_file_status_for_repo (GObject *repo, const char *status_hint, SearpcClient *client)
 {
     char *worktree;
@@ -445,40 +450,33 @@ static gboolean update_watch_set (gpointer data)
     (void)data; /* unused */
 
     g_return_val_if_fail (client, FALSE);
-    g_message ("%s\n", "update watch set");
+    g_debug ("%s\n", "Updating watch set");
 
     new_watch_set = seafile_get_repo_list (client, 0, 0, &error);
     if (error != NULL)
     {
+        g_warning("Error when getting repo list: %s\n", error->message);
         gboolean is_disconnected = TRANSPORT_ERROR_CODE == error->code;
         g_error_free (error);
         /* call stop_update_watch_set when return */
         return !is_disconnected;
     }
+
     if (watch_set_)
     {
+        // only cleans if old entry is not in new
         clean_up_files_in_old_watch_set (watch_set_, new_watch_set);
 
         g_list_foreach (watch_set_, (GFunc)g_object_unref, NULL);
         g_list_free (watch_set_);
     }
     watch_set_ = new_watch_set;
-    if (watch_set_)
-    {
-        GList *head = watch_set_;
-        while (head)
-        {
-            update_file_status_for_repo (head->data, NULL, client);
-            head = head->next;
-        }
-    }
     return TRUE;
 }
 
 static GObject* find_repo_in_list (const char* path, GList *head)
 {
-    g_return_val_if_fail (head, NULL);
-    while (head)
+    while (head) // TODO: use a hashmap? the number of repos is small though
     {
         char* worktree;
         int len;

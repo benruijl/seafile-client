@@ -41,12 +41,14 @@ gboolean seafile_rpc_instance_connect ()
     sync_client_ = ccnet_client_new ();
     if (ccnet_client_load_confdir (sync_client_, NULL, ccnet_dir) < 0)
     {
+        g_warning("Loading configuration directory failed");
         g_object_unref (sync_client_);
         return FALSE;
     }
 
     if (ccnet_client_connect_daemon (sync_client_, CCNET_CLIENT_SYNC) < 0)
     {
+        g_warning("Connecting to client daemon failed");
         g_object_unref (sync_client_);
         return FALSE;
     }
