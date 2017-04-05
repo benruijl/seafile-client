@@ -93,6 +93,7 @@ static NautilusOperationResult seafile_extension_update_file_info (NautilusInfoP
     }
 
     // TODO: make async?
+    // update the icons after invalidation, but do not query Seafile
     update_file_status_by_file (client, file, FALSE);
 
 	g_object_weak_ref (G_OBJECT (file), clean_up_single_file, NULL);
@@ -356,6 +357,7 @@ static gboolean update_file_status_by_file (SearpcClient *client, NautilusFileIn
             "string", repo_id,
             "string", path_in_repo,
             "int", nautilus_file_info_is_directory (file));
+        g_debug("New status %s", status);
 
         if (error)
         {
@@ -374,16 +376,10 @@ static gboolean update_file_status_by_file (SearpcClient *client, NautilusFileIn
 
     old_status = nautilus_file_info_get_string_attribute (file, kSeafileSyncStatus);
 
-    if (old_status)
-    {
-        if (strcmp (old_status, status))
-        {
-            nautilus_file_info_invalidate_extension_info (file);
-        }
-    }
-    else if (status != NULL)
+    if (status)
     {
         set_nautilus_file_info (file, status);
+        if (!old_status || strcmp (old_status, status)) nautilus_file_info_invalidate_extension_info (file);
     }
 
     g_free (old_status);
