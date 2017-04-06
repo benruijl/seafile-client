@@ -299,7 +299,7 @@ static inline gboolean update_file_status_by_name (SearpcClient *client, const c
 
 static inline void set_nautilus_file_info (NautilusFileInfo *file, const char *status)
 {
-    if (status && strlen(status) != 0)
+    if (status && strlen(status) != 0) // FIXME: use default "unknown?" instead?
     {
         if (strcmp("readonly", status) == 0)
         {
@@ -374,12 +374,13 @@ static gboolean update_file_status_by_file (SearpcClient *client, NautilusFileIn
         g_hash_table_replace (file_status_, filename, status);
     }
 
+    // use the difference between the old status and the new status
+    // as an indicator to update the icon and status text
     old_status = nautilus_file_info_get_string_attribute (file, kSeafileSyncStatus);
 
-    if (status)
-    {
+    if (status && (!old_status || strcmp (old_status, status))) {
+        nautilus_file_info_invalidate_extension_info (file); // invalidate before update
         set_nautilus_file_info (file, status);
-        if (!old_status || strcmp (old_status, status)) nautilus_file_info_invalidate_extension_info (file);
     }
 
     g_free (old_status);
